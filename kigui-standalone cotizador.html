@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Kigüi — Cotizador Comercial</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Murecho:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Murecho','IBM Plex Sans',system-ui,sans-serif;background:#e5e7eb;height:100vh;overflow:hidden}
+  input,textarea,select{font-family:inherit}
+  input[type=range]{accent-color:#280063}
+  ::-webkit-scrollbar{width:5px}
+  ::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:3px}
+  @media print{
+    .nop{display:none!important}
+    .preview{width:100%!important;padding:0!important;background:white!important}
+    .card{box-shadow:none!important;border-radius:0!important;max-width:100%!important}
+    @page{size:letter portrait;margin:0.4cm 0.8cm}
+    html{zoom:0.68}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const V="#280063", G="#13A672", GR="#F5F6FA", GT="#545454", W="#ffffff";
+
+const PLANS=[
+  {id:"startup",  name:"Startup",         monthlyUSD:480,   users:5,   implUSD:1200},
+  {id:"scale",    name:"Scale",           monthlyUSD:1500,  users:20,  implUSD:2500},
+  {id:"pyme",     name:"Pyme",            monthlyUSD:3100,  users:50,  implUSD:4000},
+  {id:"growth",   name:"Growth",          monthlyUSD:5200,  users:100, implUSD:6000},
+  {id:"ent",      name:"Enterprise",      monthlyUSD:7300,  users:200, implUSD:9000},
+  {id:"entplus",  name:"Enterprise Plus", monthlyUSD:11400, users:400, implUSD:14000},
+];
+
+const MODULES=[
+  {id:"stock",    name:"Módulo de Stock",              desc:"Control de inventario en tiempo real con alertas automáticas de quiebre de stock"},
+  {id:"cad",      name:"Módulo de Caducidades",         desc:"Gestión de vencimientos y reducción de merma con priorización automática por SKU"},
+  {id:"ejec",     name:"Módulo de Ejecución en Tienda", desc:"Auditoría de exhibición, cobertura y cumplimiento de planogramas por promotor"},
+  {id:"insights", name:"Módulo de Insights",            desc:"Dashboard analítico con KPIs operativos, tendencias y reportes ejecutivos en tiempo real"},
+];
+
+const DEFAULT_WHY=[
+  "Reducción de +40% en la carga operativa del equipo de campo",
+  "Implementación en solo 4 semanas sin interrumpir operaciones",
+  "Promotores validando hoy solo el 3–5% de los productos",
+  "Compatible con SAP, Finnegans, Napse, POS Berry y más ERPs",
+];
+
+const RATES0={USD:1,ARS:1050,MXN:17.5,PEN:3.75};
+
+function lbl(t){
+  return <div style={{fontSize:10,color:GT,fontWeight:700,textTransform:"uppercase",letterSpacing:.9,marginBottom:5}}>{t}</div>;
+}
+
+function Chip({bg,col,children}){
+  return <span style={{background:bg,color:col,padding:"3px 10px",borderRadius:20,fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{children}</span>;
+}
+
+function Inp({value,onChange,placeholder,type="text",style={}}){
+  return <input type={type} value={value} onChange={onChange} placeholder={placeholder||""}
+    style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:7,fontSize:13,fontFamily:"inherit",...style}}/>;
+}
+
+function App(){
+  const [tab,setTab]=useState("client");
+  const [quoteNum,setQuoteNum]=useState(1);
+
+  useEffect(()=>{
+    const saved=localStorage.getItem("kigui_quote_counter");
+    if(saved) setQuoteNum(Number(saved));
+  },[]);
+
+  const [cl,setCl]=useState({company:"",contact:"",email:"",date:new Date().toISOString().slice(0,10),expiry:"",seller:""});
+  const upCl=(f,v)=>setCl(p=>({...p,[f]:v}));
+
+  const [currency,setCurrency]=useState("USD");
+  const [rates,setRates]=useState(RATES0);
+  const [billing,setBilling]=useState("monthly");
+  const [planId,setPlanId]=useState("pyme");
+  const [activeM,setActiveM]=useState({stock:true,cad:true,ejec:true,insights:false});
+  const [customImpl,setCustomImpl]=useState(null);
+  const [globalDisc,setGlobalDisc]=useState(0);
+  const [promoNotes,setPromoNotes]=useState("");
+  const [why,setWhy]=useState(DEFAULT_WHY);
+  const [whyInput,setWhyInput]=useState("");
+
+  const plan=PLANS.find(p=>p.id===planId);
+  const rate=rates[currency];
+  const sym=currency==="PEN"?"S/":`${currency} $`;
+  const fmt=v=>`${sym} ${Math.round(v).toLocaleString("es-AR")}`;
+  const annualMult=billing==="annual"?0.85:1;
+  const discMult=1-globalDisc/100;
+  const monthly=plan.monthlyUSD*rate*annualMult*discMult;
+  const implBase=customImpl!==null?customImpl:plan.implUSD;
+  const impl=implBase*rate*discMult;
+  const activeModules=MODULES.filter(m=>activeM[m.id]);
+  const quoteLabel=`KG-${String(quoteNum).padStart(3,"0")}`;
+
+  const ts=t=>({padding:"7px 13px",borderRadius:6,border:"none",cursor:"pointer",fontSize:12,
+    fontWeight:tab===t?700:400,background:tab===t?V:"transparent",color:tab===t?W:GT});
+  const tog=(on,sm=false)=>({padding:sm?"5px 10px":"7px 16px",borderRadius:7,cursor:"pointer",
+    fontSize:sm?12:13,fontWeight:on?700:400,border:`2px solid ${on?V:"#e0e0e0"}`,
+    background:on?`${V}12`:"#fff",color:on?V:GT});
+
+  function handlePrint(){
+    const next=quoteNum+1;
+    localStorage.setItem("kigui_quote_counter",String(next));
+    setQuoteNum(next);
+    const curLabel=quoteLabel;
+    const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Kigüi — ${cl.company||"Cliente"} — ${curLabel}</title>
+<link href="https://fonts.googleapis.com/css2?family=Murecho:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Murecho','IBM Plex Sans',system-ui,sans-serif;background:#e5e7eb;padding:32px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.card{max-width:700px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 28px rgba(0,0,0,.13);overflow:hidden}
+@media print{body{padding:0;background:#fff}@page{size:letter portrait;margin:0.4cm 0.8cm}html{zoom:0.68}}
+</style></head><body><div class="card">
+<div style="background:#280063;padding:28px 36px;display:flex;justify-content:space-between;align-items:flex-start">
+  <div>
+    <div style="color:#fff;font-weight:900;font-size:30px;letter-spacing:2px;line-height:1">kigüi</div>
+    <div style="color:#13A672;font-size:12px;margin-top:5px;font-weight:600">Kigüi, tu copiloto IA para ejecución en retail</div>
+  </div>
+  <div style="text-align:right">
+    <div style="color:#fff;font-weight:700;font-size:14px">Nº ${curLabel}</div>
+    <div style="color:rgba(255,255,255,.5);font-size:12px;margin-top:3px">${cl.date}</div>
+    ${cl.expiry?`<div style="color:#fbbf24;font-size:12px;margin-top:2px">Vence: ${cl.expiry}</div>`:""}
+  </div>
+</div>
+<div style="height:3px;background:#13A672"></div>
+<div style="padding:18px 36px;background:#F5F6FA;border-bottom:1px solid rgba(40,0,99,.1)">
+  <div style="font-size:10px;color:#545454;font-weight:700;letter-spacing:1px;margin-bottom:5px;text-transform:uppercase">PROPUESTA PARA</div>
+  <div style="font-size:20px;font-weight:900;color:#280063">${cl.company||"—"}</div>
+  ${cl.contact?`<div style="color:#374151;font-size:13px;margin-top:2px">${cl.contact}</div>`:""}
+  ${cl.email?`<div style="color:#13A672;font-size:12px;margin-top:1px">${cl.email}</div>`:""}
+  ${cl.seller?`<div style="color:#545454;font-size:11px;margin-top:5px">Preparado por: ${cl.seller}</div>`:""}
+</div>
+<div style="padding:22px 36px 16px">
+  <div style="font-size:10px;color:#545454;font-weight:700;letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">PLAN SELECCIONADO</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;background:#280063;border-radius:10px;padding:16px 22px">
+    <div>
+      <div style="color:#fff;font-weight:900;font-size:20px">${plan.name}</div>
+      <div style="color:rgba(255,255,255,.7);font-size:12px;margin-top:3px">hasta ${plan.users} usuarios</div>
+    </div>
+    <div style="text-align:right">
+      <div style="color:#13A672;font-weight:900;font-size:26px">${fmt(monthly)}</div>
+      <div style="color:rgba(255,255,255,.6);font-size:11px">por mes</div>
+      ${billing==="annual"?`<div style="color:#a78bfa;font-size:11px;margin-top:2px">−15% compromiso anual</div>`:""}
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+    <span style="background:#ede9fe;color:#280063;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">hasta ${plan.users} usuarios</span>
+    <span style="background:rgba(19,166,114,.2);color:#065f46;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">${billing==="annual"?"Anual":"Mensual"}</span>
+    <span style="background:#f3f4f6;color:#545454;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">${currency}</span>
+    ${globalDisc>0?`<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600">−${globalDisc}% descuento</span>`:""}
+  </div>
+</div>
+${activeModules.length>0?`<div style="padding:0 36px 20px">
+  <div style="font-size:10px;color:#545454;font-weight:700;letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">MÓDULOS INCLUIDOS</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+    ${activeModules.map(mod=>`<div style="border:1.5px solid rgba(19,166,114,.4);border-radius:8px;padding:11px 13px;background:rgba(19,166,114,.04)">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="color:#13A672;font-weight:700;font-size:13px">✓</span>
+        <span style="font-weight:700;font-size:12px;color:#280063">${mod.name}</span>
+      </div>
+      <div style="font-size:11px;color:#545454;line-height:1.4">${mod.desc}</div>
+    </div>`).join("")}
+  </div>
+</div>`:""}
+<div style="padding:0 36px 22px">
+  <div style="font-size:10px;color:#545454;font-weight:700;letter-spacing:1px;margin-bottom:10px;text-transform:uppercase">RESUMEN ECONÓMICO</div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <tbody>
+      <tr style="border-bottom:1px solid #f3f4f6">
+        <td style="padding:12px 10px"><div style="font-weight:600;color:#1f2937">Costo de implementación</div><div style="font-size:11px;color:#545454;margin-top:1px">Una sola vez</div></td>
+        <td style="padding:12px 10px;text-align:right;font-weight:800;font-size:16px;color:#374151;white-space:nowrap">${fmt(impl)}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f3f4f6">
+        <td style="padding:12px 10px"><div style="font-weight:600;color:#1f2937">Fee mensual</div><div style="font-size:11px;color:#545454;margin-top:1px">${plan.name}</div></td>
+        <td style="padding:12px 10px;text-align:right;font-weight:800;font-size:16px;color:#280063;white-space:nowrap">${fmt(monthly)}</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr style="background:#280063">
+        <td style="padding:13px 10px;color:rgba(255,255,255,.7);font-size:12px">${billing==="annual"?"TOTAL PRIMER AÑO (impl. + 12 meses)":"TOTAL PRIMER MES (impl. + mensualidad)"}</td>
+        <td style="padding:13px 10px;text-align:right;color:#13A672;font-weight:900;font-size:18px;white-space:nowrap">${fmt(billing==="annual"?impl+monthly*12:impl+monthly)}</td>
+      </tr>
+    </tfoot>
+  </table>
+  ${currency!=="USD"?`<div style="font-size:11px;color:#545454;text-align:right;margin-top:6px">Tipo de cambio: 1 USD = ${rates[currency]} ${currency}</div>`:""}
+</div>
+${why.length>0?`<div style="padding:0 36px 22px">
+  <div style="height:1px;background:rgba(40,0,99,.15);margin-bottom:18px"></div>
+  <div style="font-size:10px;color:#545454;font-weight:700;letter-spacing:1px;margin-bottom:12px;text-transform:uppercase">¿POR QUÉ KIGÜI?</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+    ${why.map(item=>`<div style="display:flex;gap:8px;font-size:12px;color:#374151;align-items:flex-start"><span style="color:#13A672;flex-shrink:0;font-weight:900;margin-top:1px">✓</span>${item}</div>`).join("")}
+  </div>
+</div>`:""}
+${promoNotes?`<div style="margin:0 36px 22px;padding:12px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
+  <div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:5px;letter-spacing:.8px;text-transform:uppercase">Condiciones y Promociones</div>
+  <div style="font-size:12px;color:#78350f;white-space:pre-wrap">${promoNotes}</div>
+</div>`:""}
+<div style="padding:13px 36px;background:#280063;display:flex;justify-content:space-between;align-items:center">
+  <div style="color:#fff;font-weight:900;font-size:13px;letter-spacing:1px">kigüi.io</div>
+  <div style="font-size:11px;color:rgba(255,255,255,.5)">info@kigui.io · ${cl.date}</div>
+</div>
+</div>
+<script>window.onload=function(){window.print()}<\/script>
+</body></html>`;
+    const blob=new Blob([html],{type:"text/html;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url;
+    a.download=`Kigüi_${cl.company||"Cliente"}_${cl.date}_${curLabel}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  return (
+    <div style={{display:"flex",height:"100vh",overflow:"hidden"}}>
+
+      {/* ── LEFT ── */}
+      <div className="nop" style={{width:400,minWidth:360,background:W,borderRight:"1px solid #e5e7eb",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <div style={{background:V,padding:"16px 22px"}}>
+          <div style={{color:W,fontWeight:900,fontSize:22,letterSpacing:1.5}}>kigüi</div>
+          <div style={{color:`${W}80`,fontSize:11,marginTop:1}}>Cotizador Comercial</div>
+        </div>
+
+        <div style={{display:"flex",gap:3,padding:"10px 12px",background:GR,borderBottom:"1px solid #e5e7eb",flexWrap:"wrap"}}>
+          {[["client","👤 Cliente"],["quote","📦 Plan"],["discounts","🎯 Descuentos"],["content","✏️ Contenido"]].map(([t,l])=>(
+            <button key={t} style={ts(t)} onClick={()=>setTab(t)}>{l}</button>
+          ))}
+        </div>
+
+        <div style={{flex:1,overflowY:"auto",padding:"18px 20px"}}>
+
+          {tab==="client" && (
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              {[["company","Empresa / Cliente","Nombre de la empresa"],["contact","Contacto","Nombre completo"],
+                ["email","Email","correo@empresa.com"],["seller","Vendedor / SDR","Tu nombre"]].map(([f,l,ph])=>(
+                <div key={f}>{lbl(l)}<Inp value={cl[f]} onChange={e=>upCl(f,e.target.value)} placeholder={ph}/></div>
+              ))}
+              <div>
+                {lbl("Nº Cotización")}
+                <div style={{padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:7,fontSize:13,background:GR,color:GT,letterSpacing:1,fontWeight:700}}>
+                  {quoteLabel}
+                  <span style={{fontSize:10,fontWeight:400,marginLeft:8,color:"#d1d5db"}}>se incrementa al imprimir</span>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                {[["date","Fecha"],["expiry","Vence el"]].map(([f,l])=>(
+                  <div key={f}>{lbl(l)}
+                    <input type="date" value={cl[f]} onChange={e=>upCl(f,e.target.value)}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:7,fontSize:13,fontFamily:"inherit"}}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {tab==="quote" && (
+            <div style={{display:"flex",flexDirection:"column",gap:18}}>
+              <div>
+                {lbl("Moneda")}
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {["USD","ARS","MXN","PEN"].map(c=>(
+                    <button key={c} style={tog(currency===c,true)} onClick={()=>setCurrency(c)}>{c}</button>
+                  ))}
+                </div>
+              </div>
+              {currency!=="USD" && (
+                <div>
+                  {lbl(`Tipo de cambio — 1 USD = ? ${currency}`)}
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <Inp type="number" value={rates[currency]}
+                      onChange={e=>setRates(p=>({...p,[currency]:Number(e.target.value)}))} style={{width:130}}/>
+                    <span style={{fontSize:11,color:GT}}>{currency}</span>
+                  </div>
+                </div>
+              )}
+              <div>
+                {lbl("Facturación")}
+                <div style={{display:"flex",gap:8}}>
+                  <button style={tog(billing==="monthly")} onClick={()=>setBilling("monthly")}>Mensual</button>
+                  <button style={tog(billing==="annual")}  onClick={()=>setBilling("annual")}>Anual (−15%)</button>
+                </div>
+              </div>
+              <div>
+                {lbl("Plan K4B")}
+                <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                  {PLANS.map(p=>{
+                    const on=planId===p.id;
+                    return (
+                      <div key={p.id} onClick={()=>{setPlanId(p.id);setCustomImpl(null);}}
+                        style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                          padding:"10px 14px",borderRadius:8,cursor:"pointer",
+                          border:`2px solid ${on?V:"#e5e7eb"}`,background:on?`${V}0c`:W}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:13,color:on?V:"#374151"}}>{p.name}</div>
+                          <div style={{fontSize:11,color:GT,marginTop:1}}>hasta {p.users} usuarios</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontWeight:800,fontSize:14,color:on?V:"#374151"}}>USD ${p.monthlyUSD.toLocaleString()}</div>
+                          <div style={{fontSize:10,color:GT}}>por mes</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                {lbl("Costo de implementación (editable)")}
+                <Inp type="number" value={customImpl!==null?customImpl:plan.implUSD}
+                  onChange={e=>setCustomImpl(Number(e.target.value))}/>
+                <div style={{fontSize:11,color:GT,marginTop:4}}>Default {plan.name}: USD ${plan.implUSD.toLocaleString()}</div>
+              </div>
+              <div>
+                {lbl("Módulos incluidos")}
+                {MODULES.map(mod=>{
+                  const on=activeM[mod.id];
+                  return (
+                    <div key={mod.id} onClick={()=>setActiveM(p=>({...p,[mod.id]:!p[mod.id]}))}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                        borderRadius:8,marginBottom:6,cursor:"pointer",
+                        border:`1.5px solid ${on?G:"#e5e7eb"}`,background:on?`${G}0f`:GR}}>
+                      <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${on?G:"#d1d5db"}`,
+                        background:on?G:"transparent",flexShrink:0,
+                        display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        {on&&<span style={{color:W,fontSize:10,lineHeight:1}}>✓</span>}
+                      </div>
+                      <span style={{fontSize:13,fontWeight:on?600:400,color:on?"#065f46":"#374151"}}>{mod.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {tab==="discounts" && (
+            <div style={{display:"flex",flexDirection:"column",gap:16}}>
+              <div style={{background:"#fffbe6",border:"1px solid #fde68a",borderRadius:7,padding:"9px 11px",fontSize:12,color:"#78350f"}}>
+                💡 El descuento se aplica sobre el fee mensual y el costo de implementación
+              </div>
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  {lbl("Descuento global")}
+                  <span style={{fontWeight:900,color:V,fontSize:22}}>{globalDisc}%</span>
+                </div>
+                <input type="range" min={0} max={50} value={globalDisc}
+                  onChange={e=>setGlobalDisc(+e.target.value)} style={{width:"100%"}}/>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:GT,marginTop:3}}>
+                  <span>0%</span><span>25%</span><span>50%</span>
+                </div>
+              </div>
+              <div style={{height:1,background:"#f3f4f6"}}/>
+              <div style={{background:GR,border:`1px solid ${V}20`,borderRadius:8,padding:14}}>
+                <div style={{fontSize:12,fontWeight:700,color:V,marginBottom:10}}>Resumen de precios</div>
+                {[["Fee mensual",fmt(monthly)],["Implementación",fmt(impl)],
+                  ...(billing==="annual"?[["Total primer año",fmt(impl+monthly*12)]]:[])]
+                  .map(([k,v])=>(
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6,padding:"6px 0",borderBottom:"1px solid #e5e7eb"}}>
+                    <span style={{color:GT}}>{k}</span>
+                    <span style={{fontWeight:800,color:V}}>{v}</span>
+                  </div>
+                ))}
+                {globalDisc>0&&<div style={{fontSize:11,color:G,marginTop:4}}>−{globalDisc}% aplicado ✓</div>}
+                {billing==="annual"&&<div style={{fontSize:11,color:G}}>−15% anual aplicado ✓</div>}
+              </div>
+            </div>
+          )}
+
+          {tab==="content" && (
+            <div style={{display:"flex",flexDirection:"column",gap:16}}>
+              <div>
+                {lbl("Notas / Condiciones / Promociones")}
+                <textarea value={promoNotes} onChange={e=>setPromoNotes(e.target.value)} rows={5}
+                  placeholder="Ej: Precio válido hasta el 31/03. Incluye 3 meses de soporte..."
+                  style={{width:"100%",padding:10,border:"1px solid #e5e7eb",borderRadius:7,resize:"vertical",fontSize:13,fontFamily:"inherit"}}/>
+              </div>
+              <div>
+                {lbl("¿Por qué Kigüi? (bullets editables)")}
+                {why.map((item,i)=>(
+                  <div key={i} style={{display:"flex",gap:5,marginBottom:6,alignItems:"center"}}>
+                    <input value={item} onChange={e=>setWhy(p=>p.map((x,j)=>j===i?e.target.value:x))}
+                      style={{flex:1,padding:"7px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:12,fontFamily:"inherit"}}/>
+                    <button onClick={()=>setWhy(p=>p.filter((_,j)=>j!==i))}
+                      style={{background:"none",border:"none",color:"#f87171",cursor:"pointer",fontSize:18,padding:"0 4px"}}>×</button>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:5,marginTop:4}}>
+                  <input value={whyInput} onChange={e=>setWhyInput(e.target.value)}
+                    placeholder="Agregar punto..."
+                    onKeyDown={e=>{if(e.key==="Enter"&&whyInput.trim()){setWhy(p=>[...p,whyInput.trim()]);setWhyInput("");}}}
+                    style={{flex:1,padding:"7px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:12,fontFamily:"inherit"}}/>
+                  <button onClick={()=>{if(whyInput.trim()){setWhy(p=>[...p,whyInput.trim()]);setWhyInput("");}}}
+                    style={{padding:"7px 14px",background:V,color:W,border:"none",borderRadius:6,cursor:"pointer",fontWeight:700}}>+</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{padding:"14px 20px",borderTop:"1px solid #e5e7eb"}}>
+          <button onClick={handlePrint}
+            style={{width:"100%",padding:12,background:V,color:W,border:"none",borderRadius:8,
+              fontWeight:700,fontSize:14,cursor:"pointer",letterSpacing:.3,fontFamily:"inherit"}}>
+            🖨️ Descargar y abrir para imprimir
+          </button>
+          <div style={{fontSize:11,color:GT,textAlign:"center",marginTop:7}}>
+            Abrí el archivo descargado → Ctrl+P / Cmd+P → Guardar como PDF
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT PREVIEW ── */}
+      <div className="preview" style={{flex:1,overflowY:"auto",padding:"24px",background:"#e5e7eb"}}>
+        <div className="card" style={{maxWidth:700,margin:"0 auto",background:W,borderRadius:12,boxShadow:"0 4px 28px rgba(0,0,0,.13)",overflow:"hidden"}}>
+
+          <div style={{background:V,padding:"28px 36px",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div>
+              <div style={{color:W,fontWeight:900,fontSize:30,letterSpacing:2,lineHeight:1}}>kigüi</div>
+              <div style={{color:G,fontSize:12,marginTop:5,fontWeight:600}}>Kigüi, tu copiloto IA para ejecución en retail</div>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{color:W,fontWeight:700,fontSize:14}}>Nº {quoteLabel}</div>
+              <div style={{color:`${W}80`,fontSize:12,marginTop:3}}>{cl.date}</div>
+              {cl.expiry&&<div style={{color:"#fbbf24",fontSize:12,marginTop:2}}>Vence: {cl.expiry}</div>}
+            </div>
+          </div>
+          <div style={{height:3,background:G}}/>
+
+          <div style={{padding:"18px 36px",background:GR,borderBottom:`1px solid ${V}18`}}>
+            <div style={{fontSize:10,color:GT,fontWeight:700,letterSpacing:1,marginBottom:5,textTransform:"uppercase"}}>PROPUESTA PARA</div>
+            <div style={{fontSize:20,fontWeight:900,color:V}}>{cl.company||"—"}</div>
+            {cl.contact&&<div style={{color:"#374151",fontSize:13,marginTop:2}}>{cl.contact}</div>}
+            {cl.email&&<div style={{color:G,fontSize:12,marginTop:1}}>{cl.email}</div>}
+            {cl.seller&&<div style={{color:GT,fontSize:11,marginTop:5}}>Preparado por: {cl.seller}</div>}
+          </div>
+
+          <div style={{padding:"22px 36px 16px"}}>
+            <div style={{fontSize:10,color:GT,fontWeight:700,letterSpacing:1,marginBottom:12,textTransform:"uppercase"}}>PLAN SELECCIONADO</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",background:V,borderRadius:10,padding:"16px 22px"}}>
+              <div>
+                <div style={{color:W,fontWeight:900,fontSize:20}}>{plan.name}</div>
+                <div style={{color:`${W}70`,fontSize:12,marginTop:3}}>hasta {plan.users} usuarios</div>
+              </div>
+              <div style={{textAlign:"right"}}>
+                <div style={{color:G,fontWeight:900,fontSize:26}}>{fmt(monthly)}</div>
+                <div style={{color:`${W}60`,fontSize:11}}>por mes</div>
+                {billing==="annual"&&<div style={{color:"#a78bfa",fontSize:11,marginTop:2}}>−15% compromiso anual</div>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+              <Chip bg="#ede9fe" col={V}>hasta {plan.users} usuarios</Chip>
+              <Chip bg={`${G}20`} col="#065f46">{billing==="annual"?"Anual":"Mensual"}</Chip>
+              <Chip bg="#f3f4f6" col={GT}>{currency}</Chip>
+              {globalDisc>0&&<Chip bg="#fef3c7" col="#92400e">−{globalDisc}% descuento</Chip>}
+            </div>
+          </div>
+
+          {activeModules.length>0&&(
+            <div style={{padding:"0 36px 20px"}}>
+              <div style={{fontSize:10,color:GT,fontWeight:700,letterSpacing:1,marginBottom:10,textTransform:"uppercase"}}>MÓDULOS INCLUIDOS</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                {activeModules.map(mod=>(
+                  <div key={mod.id} style={{border:`1.5px solid ${G}40`,borderRadius:8,padding:"11px 13px",background:`${G}07`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                      <span style={{color:G,fontWeight:700,fontSize:13}}>✓</span>
+                      <span style={{fontWeight:700,fontSize:12,color:V}}>{mod.name}</span>
+                    </div>
+                    <div style={{fontSize:11,color:GT,lineHeight:1.4}}>{mod.desc}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{padding:"0 36px 22px"}}>
+            <div style={{fontSize:10,color:GT,fontWeight:700,letterSpacing:1,marginBottom:10,textTransform:"uppercase"}}>RESUMEN ECONÓMICO</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <tbody>
+                {[["Costo de implementación","Una sola vez",fmt(impl),"#374151"],
+                  ["Fee mensual",plan.name,fmt(monthly),V]].map(([c,s,v,col])=>(
+                  <tr key={c} style={{borderBottom:"1px solid #f3f4f6"}}>
+                    <td style={{padding:"12px 10px"}}>
+                      <div style={{fontWeight:600,color:"#1f2937"}}>{c}</div>
+                      <div style={{fontSize:11,color:GT,marginTop:1}}>{s}</div>
+                    </td>
+                    <td style={{padding:"12px 10px",textAlign:"right",fontWeight:800,fontSize:16,color:col,whiteSpace:"nowrap"}}>{v}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{background:V}}>
+                  <td style={{padding:"13px 10px",color:`${W}80`,fontSize:12}}>
+                    {billing==="annual"?"TOTAL PRIMER AÑO (impl. + 12 meses)":"TOTAL PRIMER MES (impl. + mensualidad)"}
+                  </td>
+                  <td style={{padding:"13px 10px",textAlign:"right",color:G,fontWeight:900,fontSize:18,whiteSpace:"nowrap"}}>
+                    {fmt(billing==="annual"?impl+monthly*12:impl+monthly)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            {currency!=="USD"&&<div style={{fontSize:11,color:GT,textAlign:"right",marginTop:6}}>Tipo de cambio: 1 USD = {rates[currency]} {currency}</div>}
+          </div>
+
+          {why.length>0&&(
+            <div style={{padding:"0 36px 22px"}}>
+              <div style={{height:1,background:`${V}15`,marginBottom:18}}/>
+              <div style={{fontSize:10,color:GT,fontWeight:700,letterSpacing:1,marginBottom:12,textTransform:"uppercase"}}>¿POR QUÉ KIGÜI?</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+                {why.map((item,i)=>(
+                  <div key={i} style={{display:"flex",gap:8,fontSize:12,color:"#374151",alignItems:"flex-start"}}>
+                    <span style={{color:G,flexShrink:0,fontWeight:900,marginTop:1}}>✓</span>{item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {promoNotes&&(
+            <div style={{margin:"0 36px 22px",padding:"12px 14px",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#92400e",marginBottom:5,letterSpacing:.8,textTransform:"uppercase"}}>Condiciones y Promociones</div>
+              <div style={{fontSize:12,color:"#78350f",whiteSpace:"pre-wrap"}}>{promoNotes}</div>
+            </div>
+          )}
+
+          <div style={{padding:"13px 36px",background:V,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div style={{color:W,fontWeight:900,fontSize:13,letterSpacing:1}}>kigüi.io</div>
+            <div style={{fontSize:11,color:`${W}60`}}>info@kigui.io · {cl.date}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
